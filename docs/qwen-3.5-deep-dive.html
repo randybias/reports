@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qwen 3.5 Deep Dive Report</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --warning: #d29922;
+    --danger: #f85149;
+    --code-bg: #1c2129;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }
+  h1 {
+    font-size: 2.2rem;
+    margin-bottom: 0.3rem;
+    background: linear-gradient(135deg, var(--accent), #a371f7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+  }
+  h2 {
+    font-size: 1.5rem;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.4rem;
+  }
+  h3 {
+    font-size: 1.15rem;
+    margin-top: 1.8rem;
+    margin-bottom: 0.6rem;
+    color: #a371f7;
+  }
+  h4 {
+    font-size: 1rem;
+    margin-top: 1.2rem;
+    margin-bottom: 0.4rem;
+    color: var(--text);
+  }
+  p { margin-bottom: 1rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  strong { color: #f0f6fc; }
+  code {
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.88em;
+    color: #79c0ff;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+  }
+  pre code { background: none; padding: 0; color: var(--text); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.5rem;
+    font-size: 0.88rem;
+    display: block;
+    overflow-x: auto;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  th {
+    background: var(--surface);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  td { background: var(--bg); }
+  tr:hover td { background: var(--surface); }
+  .badge {
+    display: inline-block;
+    padding: 0.15em 0.6em;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .badge-green { background: #1a3a2a; color: var(--accent2); }
+  .badge-yellow { background: #3a2e1a; color: var(--warning); }
+  .badge-red { background: #3a1a1a; color: var(--danger); }
+  .callout {
+    border-left: 3px solid var(--warning);
+    background: rgba(210, 153, 34, 0.08);
+    padding: 0.8rem 1rem;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 1rem;
+  }
+  .callout-info {
+    border-left-color: var(--accent);
+    background: rgba(88, 166, 255, 0.08);
+  }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .toc h3 { margin-top: 0; color: var(--text); }
+  .toc ol { padding-left: 1.2rem; }
+  .toc li { margin-bottom: 0.3rem; }
+  .toc a { color: var(--text-muted); }
+  .toc a:hover { color: var(--accent); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+  li { margin-bottom: 0.3rem; }
+  .footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+  .exec-summary {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  @media (max-width: 700px) {
+    body { padding: 1rem; }
+    h1 { font-size: 1.6rem; }
+    .grid-2 { grid-template-columns: 1fr; }
+    th, td { padding: 0.35rem 0.5rem; font-size: 0.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<h1>🔬 Qwen 3.5 Deep Dive Report</h1>
+<p class="subtitle">Research Date: February 16, 2026 &nbsp;·&nbsp; Model Release: February 16, 2026 (Lunar New Year eve)</p>
+
+<nav class="toc">
+<h3>📑 Table of Contents</h3>
+<ol>
+<li><a href="#summary">Executive Summary</a></li>
+<li><a href="#overview">Model Overview</a></li>
+<li><a href="#benchmarks">Benchmarks &amp; Performance</a></li>
+<li><a href="#whats-new">What's New vs Qwen 2.5 / Qwen 3</a></li>
+<li><a href="#reviews">Reviews &amp; Community Reception</a></li>
+<li><a href="#licensing">Licensing &amp; Availability</a></li>
+<li><a href="#strengths">Strengths &amp; Weaknesses</a></li>
+<li><a href="#practical">Practical Considerations</a></li>
+<li><a href="#conclusion">Conclusion &amp; Recommendations</a></li>
+<li><a href="#resources">Key Resources</a></li>
+</ol>
+</nav>
+
+<section id="summary">
+<h2>Executive Summary</h2>
+<div class="exec-summary">
+<p>Qwen 3.5 represents a significant leap forward from Alibaba Cloud's Qwen team, released just weeks after Qwen3. The flagship <strong>Qwen3.5-397B-A17B</strong> is a Mixture-of-Experts (MoE) model with 397 billion total parameters but only 17 billion activated during inference. This architectural efficiency allows it to achieve performance comparable to frontier models like GPT-5.2, Claude Opus 4.5, and Gemini-3 Pro while requiring only a fraction of the compute resources.</p>
+<p><strong>Key Innovation:</strong> Qwen 3.5 introduces a <strong>hybrid architecture combining Gated Delta Networks (linear attention) with sparse MoE</strong>, achieving breakthrough efficiency. It's also the first Qwen model with <strong>true multimodality</strong> — trained from scratch on unified vision-language data with early fusion, not bolted-on adapters.</p>
+</div>
+</section>
+
+<section id="overview">
+<h2>1. Model Overview</h2>
+
+<h3>Architecture &amp; Parameter Sizes</h3>
+
+<h4>Qwen3.5-397B-A17B <span class="badge badge-green">Open Source</span></h4>
+<div class="grid-2">
+<div class="card">
+<strong>Total Parameters:</strong> 397B<br>
+<strong>Active Parameters:</strong> 17B<br>
+<strong>Architecture:</strong> Hybrid Gated Delta Networks + Sparse MoE<br>
+<strong>Context Window:</strong> 262,144 tokens native, extensible to <strong>1,010,000 tokens</strong>
+</div>
+<div class="card">
+<strong>Layers:</strong> 60 (15:1 pattern — 3× DeltaNet → 1× Attention)<br>
+<strong>Experts:</strong> 512 total, 10 routed + 1 shared<br>
+<strong>Hidden Dimension:</strong> 4096<br>
+<strong>Vocabulary:</strong> 248,320 tokens
+</div>
+</div>
+
+<h4>Qwen3.5-Plus <span class="badge badge-yellow">Closed Source, API Only</span></h4>
+<p>Hosted version via Alibaba Cloud Model Studio. 1M context by default, built-in tools, adaptive tool use. API pricing not yet disclosed.</p>
+
+<h3>Variants</h3>
+<p>Unlike Qwen3 (0.6B–235B range), <strong>Qwen 3.5 currently has only one open-source model</strong>: the 397B-A17B flagship.</p>
+
+<h3>Thinking Mode</h3>
+<ul>
+<li><strong>Default:</strong> Thinking mode ON — generates <code>&lt;think&gt;...&lt;/think&gt;</code> reasoning chains</li>
+<li><strong>Toggle:</strong> <code>enable_thinking: false</code> via API</li>
+<li>Soft-switch prompts (<code>/think</code>, <code>/nothink</code>) are <strong>not officially supported</strong> (change from Qwen3)</li>
+</ul>
+
+<h3>Training Data</h3>
+<ul>
+<li><strong>Multimodal:</strong> Early fusion training on text + image + video from pre-training start</li>
+<li><strong>Languages:</strong> 201 languages and dialects (up from 119 in Qwen3)</li>
+<li><strong>Post-training:</strong> 4-stage pipeline — CoT cold start → reasoning RL → thinking fusion → general RL (20+ domains)</li>
+<li><strong>Scaled RL:</strong> Million-agent environments with progressive complexity</li>
+</ul>
+</section>
+
+<section id="benchmarks">
+<h2>2. Benchmarks &amp; Performance</h2>
+
+<div class="callout">
+⚠️ <strong>All benchmark scores below are self-reported by the Qwen team</strong> as of February 16, 2026. Independent third-party evaluations are not yet available.
+</div>
+
+<h3>Text-Only Performance</h3>
+<table>
+<thead>
+<tr><th>Category</th><th>Benchmark</th><th>Qwen3.5-397B</th><th>GPT-5.2</th><th>Claude 4.5 Opus</th><th>Gemini-3 Pro</th></tr>
+</thead>
+<tbody>
+<tr><td>Knowledge</td><td>MMLU-Pro</td><td><strong>87.8</strong></td><td>87.4</td><td>89.5</td><td>89.8</td></tr>
+<tr><td>Knowledge</td><td>MMLU-Redux</td><td><strong>94.9</strong></td><td>95.0</td><td>95.6</td><td>95.9</td></tr>
+<tr><td>Knowledge</td><td>SuperGPQA</td><td><strong>70.4</strong></td><td>67.9</td><td>70.6</td><td><strong>74.0</strong></td></tr>
+<tr><td>Instruction</td><td>IFEval</td><td>92.6</td><td><strong>94.8</strong></td><td>90.9</td><td>93.5</td></tr>
+<tr><td>Instruction</td><td>IFBench</td><td><strong>76.5</strong></td><td>75.4</td><td>58.0</td><td>70.4</td></tr>
+<tr><td>Instruction</td><td>MultiChallenge</td><td><strong>67.6</strong></td><td>57.9</td><td>54.2</td><td>64.2</td></tr>
+<tr><td>Reasoning</td><td>AIME26</td><td>91.3</td><td><strong>96.7</strong></td><td>93.3</td><td>90.6</td></tr>
+<tr><td>Reasoning</td><td>HMMT Feb 25</td><td>94.8</td><td><strong>99.4</strong></td><td>92.9</td><td>97.3</td></tr>
+<tr><td>Reasoning</td><td>LiveCodeBench v6</td><td>83.6</td><td>87.7</td><td>84.8</td><td><strong>90.7</strong></td></tr>
+<tr><td>Coding Agent</td><td>SWE-bench Verified</td><td>76.4</td><td>80.0</td><td><strong>80.9</strong></td><td>76.2</td></tr>
+<tr><td>Coding Agent</td><td>SecCodeBench</td><td><strong>68.3</strong></td><td>68.7</td><td>68.6</td><td>62.4</td></tr>
+<tr><td>General Agent</td><td>BFCL-V4</td><td>72.9</td><td>63.1</td><td><strong>77.5</strong></td><td>72.5</td></tr>
+<tr><td>General Agent</td><td>TAU2-Bench</td><td>86.7</td><td>87.1</td><td><strong>91.6</strong></td><td>85.4</td></tr>
+<tr><td>Multilingual</td><td>MMMLU</td><td>88.5</td><td>89.5</td><td>90.1</td><td><strong>90.6</strong></td></tr>
+</tbody>
+</table>
+
+<h3>Vision-Language Performance</h3>
+<table>
+<thead>
+<tr><th>Category</th><th>Benchmark</th><th>Qwen3.5-397B</th><th>GPT-5.2</th><th>Claude 4.5 Opus</th><th>Gemini-3 Pro</th></tr>
+</thead>
+<tbody>
+<tr><td>Math/STEM</td><td>MathVision</td><td><strong>88.6</strong></td><td>83.0</td><td>74.3</td><td>86.6</td></tr>
+<tr><td>Math/STEM</td><td>MathVista-mini</td><td><strong>90.3</strong></td><td>83.1</td><td>80.0</td><td>87.9</td></tr>
+<tr><td>Document</td><td>OmniDocBench</td><td><strong>90.8</strong></td><td>85.7</td><td>87.7</td><td>88.5</td></tr>
+<tr><td>Document</td><td>OCRBench</td><td><strong>93.1</strong></td><td>80.7</td><td>85.8</td><td>90.4</td></tr>
+<tr><td>Spatial</td><td>V*</td><td><strong>95.8</strong></td><td>75.9</td><td>67.0</td><td>88.0</td></tr>
+<tr><td>Video</td><td>VideoMME (w/ sub)</td><td>87.5</td><td>86.0</td><td>77.6</td><td><strong>88.4</strong></td></tr>
+<tr><td>Video</td><td>MLVU</td><td><strong>86.7</strong></td><td>85.6</td><td>81.7</td><td>83.0</td></tr>
+<tr><td>Agent</td><td>AndroidWorld</td><td><strong>66.8</strong></td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>Agent</td><td>OSWorld-Verified</td><td>62.2</td><td>38.2</td><td><strong>66.3</strong></td><td>—</td></tr>
+</tbody>
+</table>
+
+<p><strong>Key Takeaways:</strong> Vision-language is a standout strength. Text reasoning is competitive but trails GPT-5.2 on math competitions. Strong multilingual coverage across 201 languages.</p>
+</section>
+
+<section id="whats-new">
+<h2>3. What's New vs Qwen 2.5 / Qwen 3</h2>
+
+<h3>Architectural Changes</h3>
+<ol>
+<li><strong>Hybrid Attention:</strong> Gated Delta Networks (linear attention) + standard attention in a 15:1 pattern. Higher throughput, lower memory.</li>
+<li><strong>True Multimodal Foundation:</strong> Early fusion — text, image, video tokens unified from pre-training start (not bolted-on adapters).</li>
+<li><strong>Expert Scaling:</strong> 512 experts (10 routed + 1 shared), up from 128 in Qwen3.</li>
+<li><strong>Context Window:</strong> 262k native (up from 128k), extensible to 1M+ via YaRN.</li>
+</ol>
+
+<h3>Training Improvements</h3>
+<ol start="5">
+<li><strong>RL Scale:</strong> Million-agent RL environments with asynchronous frameworks.</li>
+<li><strong>Languages:</strong> 201 (up from 119 in Qwen3, ~90 in Qwen 2.5).</li>
+<li><strong>Efficiency:</strong> Near-100% multimodal training efficiency vs text-only.</li>
+</ol>
+
+<h3>Feature Changes</h3>
+<ol start="8">
+<li><strong>Thinking Mode:</strong> Hard toggle via API (soft-switch <code>/think</code> removed).</li>
+<li><strong>Multi-Token Prediction:</strong> Trained for MTP — 2–4× faster inference with speculative decoding.</li>
+<li><strong>Video Understanding:</strong> Native long-video support (hour-scale), configurable FPS.</li>
+</ol>
+</section>
+
+<section id="reviews">
+<h2>4. Reviews &amp; Community Reception</h2>
+
+<p>Released February 16, 2026 (Lunar New Year eve), capping a "frenetic week" where nearly every major Chinese AI developer released flagship models (per SCMP).</p>
+
+<h3>Early Community Reactions</h3>
+<div class="card" style="margin-bottom:1rem">
+<p><strong>Reddit r/LocalLLaMA:</strong></p>
+<ul>
+<li><em>"397B total / 17B active params… Innovative Gated Delta Networks + Sparse MoE for extreme speed"</em></li>
+<li><em>"This is exactly what Andrej Karpathy was talking about with his '40% annual deflation' post."</em></li>
+<li><strong>Sentiment:</strong> Excitement about efficiency; curiosity about how it compares to Claude Sonnet 4.5 at $3/M</li>
+</ul>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+<p><strong>HuggingFace:</strong></p>
+<ul>
+<li>GGUF quantizations available immediately via unsloth</li>
+<li>Extensive model card with code examples for vLLM/SGLang/Transformers</li>
+<li>Deployment-ready with strong framework support out of the gate</li>
+</ul>
+</div>
+
+<div class="callout">
+⚠️ <strong>Too early for independent reviews.</strong> Release was &lt;24 hours ago. No reviews from Simon Willison, ArtificialAnalysis, LMArena, or academic sources yet.
+</div>
+</section>
+
+<section id="licensing">
+<h2>5. Licensing &amp; Availability</h2>
+
+<div class="grid-2">
+<div class="card">
+<h4>Open Source <span class="badge badge-green">Apache 2.0</span></h4>
+<ul>
+<li><a href="https://huggingface.co/Qwen/Qwen3.5-397B-A17B">HuggingFace</a></li>
+<li><a href="https://github.com/QwenLM/Qwen3.5">GitHub</a></li>
+<li>ModelScope &amp; Kaggle</li>
+<li>✅ Full commercial use</li>
+</ul>
+</div>
+<div class="card">
+<h4>Qwen3.5-Plus <span class="badge badge-yellow">API Only</span></h4>
+<ul>
+<li><a href="https://modelstudio.alibabacloud.com/">Alibaba Cloud Model Studio</a></li>
+<li>1M context by default</li>
+<li>Built-in tools</li>
+<li>❓ Pricing TBD</li>
+</ul>
+</div>
+</div>
+
+<h3>How to Run It</h3>
+<table>
+<thead><tr><th>Framework</th><th>Min Hardware</th><th>Command</th></tr></thead>
+<tbody>
+<tr><td>SGLang</td><td>8× H100 80GB</td><td><code>python -m sglang.launch_server --model-path Qwen/Qwen3.5-397B-A17B --tp-size 8</code></td></tr>
+<tr><td>vLLM</td><td>8× H100 80GB</td><td><code>vllm serve Qwen/Qwen3.5-397B-A17B --tensor-parallel-size 8</code></td></tr>
+<tr><td>Ollama</td><td>Quantized</td><td><code>ollama run qwen3.5:397b-a17b</code></td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="strengths">
+<h2>6. Strengths &amp; Weaknesses</h2>
+
+<div class="grid-2">
+<div class="card">
+<h4>✅ Strengths</h4>
+<ul>
+<li><strong>Architectural Efficiency:</strong> 397B params, 17B active</li>
+<li><strong>Multimodal Excellence:</strong> True unified foundation, best-in-class vision</li>
+<li><strong>201 Languages:</strong> Most comprehensive OSS model</li>
+<li><strong>Long Context:</strong> 262k native, 1M+ extensible</li>
+<li><strong>Production-Ready:</strong> Same-day framework support, Apache 2.0</li>
+<li><strong>Strong Agent/Tool Use:</strong> Native MCP support</li>
+</ul>
+</div>
+<div class="card">
+<h4>⚠️ Weaknesses</h4>
+<ul>
+<li><strong>Unverified Benchmarks:</strong> All self-reported</li>
+<li><strong>Massive Compute:</strong> 8× H100 minimum</li>
+<li><strong>Reasoning Gaps:</strong> Trails GPT-5.2 on AIME/HMMT</li>
+<li><strong>One Size Only:</strong> No 8B/14B/32B variants</li>
+<li><strong>API Pricing Unknown</strong></li>
+<li><strong>Tool Use Mid-tier:</strong> MCP-Mark 46.1 vs Claude's lead</li>
+</ul>
+</div>
+</div>
+
+<h3>Honest Assessment</h3>
+<p><strong>Is it GPT-5 / Claude Opus 4.5 level?</strong></p>
+<ul>
+<li><strong>On paper:</strong> Yes, competitive on most benchmarks.</li>
+<li><strong>In practice:</strong> Unknown — needs independent testing for instruction quality, hallucination rates, long-context coherence, and creative writing.</li>
+</ul>
+</section>
+
+<section id="practical">
+<h2>7. Practical Considerations</h2>
+
+<h3>Hardware Requirements</h3>
+<table>
+<thead><tr><th>Tier</th><th>Hardware</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Full Precision</td><td>8× H100 80GB (640GB VRAM)</td><td>1TB+ RAM, NVLink</td></tr>
+<tr><td>Quantized (INT4)</td><td>4× A100 80GB (~200GB VRAM)</td><td>Quality degradation expected</td></tr>
+<tr><td><span class="badge badge-red">Not Feasible</span></td><td>Consumer GPUs (4090, 4080)</td><td>Cannot handle even quantized 397B</td></tr>
+</tbody>
+</table>
+
+<h3>Inference Speed (Estimated)</h3>
+<ul>
+<li><strong>Qwen3.5-397B:</strong> ~20–40 tok/s on 8× H100 (thinking off)</li>
+<li><strong>MTP Boost:</strong> 2–4× with speculative decoding</li>
+<li><strong>Thinking mode:</strong> Adds significant latency (1000+ token chains)</li>
+</ul>
+
+<h3>Fine-Tuning</h3>
+<ul>
+<li>✅ LoRA/QLoRA supported (HF PEFT, Axolotl)</li>
+<li>⚠️ Full fine-tuning requires massive resources</li>
+<li>⚠️ No official recipes yet — released &lt;24h ago</li>
+<li>💡 Consider distillation to Qwen3-32B as student</li>
+</ul>
+</section>
+
+<section id="conclusion">
+<h2>8. Conclusion &amp; Recommendations</h2>
+
+<h3>Who Should Use Qwen 3.5?</h3>
+<div class="grid-2">
+<div class="card">
+<h4>✅ Ideal For</h4>
+<ul>
+<li>Enterprises with GPU infrastructure</li>
+<li>Multilingual applications (201 languages)</li>
+<li>Vision-intensive tasks</li>
+<li>Cost-sensitive deployments (17B activation)</li>
+<li>Open-source requirements (Apache 2.0)</li>
+</ul>
+</div>
+<div class="card">
+<h4>❌ Not Recommended For</h4>
+<ul>
+<li>Individuals / small teams</li>
+<li>Real-time applications</li>
+<li>Highest-stakes reasoning (wait for validation)</li>
+<li>Production immediately (too new)</li>
+</ul>
+</div>
+</div>
+
+<h3>Open Questions</h3>
+<ol>
+<li>Do self-reported benchmark scores hold up under independent testing?</li>
+<li>Does thinking mode improve factuality / reduce hallucinations?</li>
+<li>Is 1M context coherent, or does quality degrade?</li>
+<li>Will Qwen3.5-Plus undercut Claude Sonnet 4.5 on pricing?</li>
+<li>Will smaller model variants (8B/14B/32B) be released?</li>
+</ol>
+
+<h3>Final Verdict</h3>
+<p><strong>Qwen 3.5 is a major release that advances the state-of-the-art in open-source multimodal LLMs.</strong> The hybrid Gated Delta Network + MoE architecture is a genuine innovation, and 17B activation for 397B total parameters represents a significant efficiency leap.</p>
+<p>However, <strong>it's too early to declare victory.</strong> The model needs independent benchmark validation, real-world testing, and comparison to upcoming competitors (DeepSeek V3.2, Llama 4).</p>
+<p><strong>Recommendation:</strong> If you have the infrastructure, deploy a test instance. Otherwise, wait for API pricing, independent reviews, and smaller variants.</p>
+</section>
+
+<section id="resources">
+<h2>9. Key Resources</h2>
+<ul>
+<li><a href="https://qwen.ai/blog?id=qwen3.5">Official Blog</a></li>
+<li><a href="https://huggingface.co/Qwen/Qwen3.5-397B-A17B">HuggingFace Model</a></li>
+<li><a href="https://github.com/QwenLM/Qwen3.5">GitHub</a></li>
+<li><a href="https://modelstudio.alibabacloud.com/">Alibaba Cloud Model Studio</a></li>
+<li><a href="https://chat.qwen.ai/">Qwen Chat (Demo)</a></li>
+<li><a href="https://huggingface.co/unsloth/Qwen3.5-397B-A17B-GGUF">GGUF Quantizations</a></li>
+<li><a href="https://github.com/QwenLM/Qwen-Agent">Qwen-Agent (Tool Use)</a></li>
+</ul>
+</section>
+
+<div class="footer">
+<p><strong>Report Compiled By:</strong> OpenClaw &nbsp;·&nbsp; <strong>Date:</strong> February 16, 2026</p>
+<p><strong>Sources:</strong> Official Qwen documentation, HuggingFace model cards, SCMP, Reddit (r/LocalLLaMA, r/Qwen_AI), Artificial Analysis, community discussions</p>
+<p>⚠️ <em>This report is based on information available within 24 hours of release. Self-reported benchmarks should be treated as preliminary until independently verified.</em></p>
+</div>
+
+</body>
+</html>
